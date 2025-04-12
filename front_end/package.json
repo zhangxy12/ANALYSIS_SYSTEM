@@ -1,0 +1,54 @@
+{
+  "name": "yuqing",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "serve": "vue-cli-service serve",
+    "build": "vue-cli-service build",
+    "lint": "vue-cli-service lint"
+  },
+  "dependencies": {
+    "@jiaminghi/data-view": "^2.10.0",
+    "animate.css": "^4.1.1",
+    "axios": "^1.7.8",
+    "core-js": "^3.6.5",
+    "echarts": "^5.5.1",
+    "echarts-map": "^3.0.1",
+    "echarts-wordcloud": "^2.1.0",
+    "element-ui": "^2.15.14",
+    "font-awesome": "^4.7.0",
+    "gsap": "^3.12.7",
+    "jquery": "^3.6.0",
+    "vue": "^2.6.11",
+    "vue-router": "^3.5.2"
+  },
+  "devDependencies": {
+    "@vue/cli-plugin-babel": "~4.5.0",
+    "@vue/cli-plugin-eslint": "~4.5.0",
+    "@vue/cli-service": "~4.5.0",
+    "babel-eslint": "^10.1.0",
+    "babel-plugin-component": "^1.1.1",
+    "eslint": "^6.7.2",
+    "eslint-plugin-vue": "^6.2.2",
+    "vue-template-compiler": "^2.6.11"
+  },
+  "eslintConfig": {
+    "root": true,
+    "env": {
+      "node": true
+    },
+    "extends": [
+      "plugin:vue/essential",
+      "eslint:recommended"
+    ],
+    "parserOptions": {
+      "parser": "babel-eslint"
+    },
+    "rules": {}
+  },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead"
+  ]
+}
