@@ -10,8 +10,19 @@
             <h2>谣言详情</h2>
         </div>
 
+        <!-- 加载状态和错误提示 -->
+        <div v-if="loading" class="center-message">
+            <p>数据加载中...</p>
+        </div>
+        <div v-else-if="error" class="center-message error-message">
+            <p>{{ error }}</p>
+        </div>
+        <div v-else-if="filteredRumors.length === 0" class="center-message">
+            <p>暂无谣言数据，系统将在每天凌晨3点自动更新。</p>
+        </div>
+
         <!-- 遍历所有谣言并显示 -->
-        <div class="all">
+        <div v-else class="all">
             <div v-for="(rumor, index) in filteredRumors" :key="index" class="rumor-item">
                 <a :href="`/rumorAnalyse?key=${encodeURIComponent(rumor.rumor)}`" class="rumor-title">
                 <span><strong>谣言:</strong> {{ rumor.rumor }}</span>
@@ -41,14 +52,19 @@ export default {
             rumors: [],
             showTruth: [],
             searchQuery: '',
-            filteredRumors: []
+            filteredRumors: [],
+            loading: true,
+            error: null
         };
     },
     methods: {
         async fetchRumorDetails() {
             try {
+                this.loading = true;
+                this.error = null;
                 const response = await axios.post('/rumor/rumor_detail');
-                if (response.data.message === '谣言详情爬取并保存成功') {
+                
+                if (response.data.data && response.data.data.length > 0) {
                     this.rumors = response.data.data;
                     // 按日期从大到小排序
                     this.rumors.sort((a, b) => {
@@ -59,9 +75,17 @@ export default {
                     this.filteredRumors = this.rumors;
                     // 确保初始化数组与数据长度一致
                     this.showTruth = new Array(this.rumors.length).fill(false);
+                } else {
+                    // 如果没有数据，设置空数组
+                    this.rumors = [];
+                    this.filteredRumors = [];
+                    this.showTruth = [];
                 }
+                this.loading = false;
             } catch (error) {
                 console.error('获取数据失败', error);
+                this.error = '获取数据失败，请稍后再试';
+                this.loading = false;
             }
         },
         toggleTruth(index) {
@@ -372,6 +396,19 @@ button:hover {
     );
     animation: techFlow 4s infinite linear;
     opacity: 0.3;
+}
+
+.center-message {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 200px;
+    color: white;
+    font-size: 18px;
+}
+
+.error-message {
+    color: #ff6b6b;
 }
 
 @keyframes techFlow {

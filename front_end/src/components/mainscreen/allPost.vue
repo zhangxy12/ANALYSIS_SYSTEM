@@ -18,6 +18,17 @@ import axios from 'axios';
 import * as echarts from 'echarts';
 
 export default {
+    props: {
+        refresh: {
+            type: Boolean,
+            default: false
+        }
+    },
+    watch: {
+        refresh() {
+            this.fetchData();
+        }
+    },
     data() {
         return {
             chart: null,
@@ -35,15 +46,22 @@ export default {
                 const response = await axios.get('/main/all_post');
                 console.log(response);
                 if (response.data.code === 0) {
-                    this.data = response.data.data || []; // 确保 this.data 是一个数组
-                    console.log(this.data);
+                    this.data = response.data.data || [];
+                    
+                    // 检查是否有数据
+                    const hasData = this.data.length > 0;
+                    // 发送数据状态到父组件
+                    this.$emit('data-status', hasData);
+                    
                     this.drawChart();
                 } else {
                     this.errorMessage = response.data.message;
+                    this.$emit('data-status', false);
                 }
             } catch (error) {
                 this.errorMessage = '请求数据时出现错误，请稍后重试。';
                 console.error(error);
+                this.$emit('data-status', false);
             }
         },
 
@@ -66,10 +84,10 @@ export default {
                 return filteredData.map(item => item.source_count[key] || 0);
             });
 
-            // 打印调试信息
-            console.log('Filtered Data:', filteredData);
-            console.log('Dates:', dates);
-            console.log('Series Data:', seriesData);
+            // 如果已有图表实例，先销毁它
+            if (this.chart) {
+                this.chart.dispose();
+            }
 
             this.chart = echarts.init(this.$refs.chart);
 

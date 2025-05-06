@@ -8,15 +8,23 @@
             <button @click="filterRumors('oneYear')" class="tech-button">一年</button>
         </div>
 
-        <ul class="rumor-ul">
+        <!-- 加载和空数据状态 -->
+        <div v-if="loading" class="status-message">
+            <p>加载中...</p>
+        </div>
+        <div v-else-if="error" class="status-message error-message">
+            <p>{{ error }}</p>
+        </div>
+        <div v-else-if="filteredRumorList.length === 0" class="status-message">
+            <p>暂无谣言数据，系统将在每天凌晨3点自动更新。</p>
+        </div>
+
+        <ul v-else class="rumor-ul">
             <li v-for="rumor in filteredRumorList" :key="rumor.url">
                 <a :href="rumor.url" target="_blank">{{ rumor.date }}</a>
                 
             </li>
         </ul>
-
-        <div v-if="loading">加载中...</div>
-        <div v-else-if="error">{{ error }}</div>
     </div>
 </template>
 
@@ -34,8 +42,11 @@ export default {
     methods: {
         async fetchRumors() {
             try {
+                this.loading = true;
+                this.error = null;
                 const response = await this.$axios.post('/rumor/rumor_search');
-                if (response.data.message === '谣言搜索并存储成功') {
+                
+                if (response.data.data && response.data.data.length > 0) {
                     this.rumors = response.data.data;
                     // 按日期从大到小排序
                     this.rumors.sort((a, b) => {
@@ -47,11 +58,14 @@ export default {
                     this.filteredRumorList = this.rumors;
                     this.loading = false;
                 } else {
-                    this.error = response.data.message;
+                    // 如果没有数据，设置为空数组
+                    this.rumors = [];
+                    this.filteredRumorList = [];
                     this.loading = false;
                 }
             } catch (err) {
-                this.error = '获取数据失败';
+                console.error('获取数据失败', err);
+                this.error = '获取数据失败，请稍后再试';
                 this.loading = false;
             }
         },
@@ -62,6 +76,11 @@ export default {
         },
 
         applyFilter() {
+            if (this.rumors.length === 0) {
+                this.filteredRumorList = [];
+                return;
+            }
+            
             const now = new Date();
             const filtered = this.rumors.filter(rumor => {
                 const rumorDate = new Date(rumor.date);
@@ -153,16 +172,19 @@ export default {
     color: #272f36;
 }
 
-.loading {
+.status-message {
     text-align: center;
-    color: #6c757d;
-    margin-top: 20px;
+    color: #f4f6f6;
+    margin: 20px 0;
+    padding: 20px;
+    height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.error {
-    text-align: center;
-    color: red;
-    margin-top: 20px;
+.error-message {
+    color: #ff6b6b;
 }
 
 /* 自定义滚动条样式 */

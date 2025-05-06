@@ -14,9 +14,21 @@ import axios from 'axios';
 import * as echarts from 'echarts';
 
 export default {
+  props: {
+    refresh: {
+      type: Boolean,
+      default: false
+    }
+  },
+  watch: {
+    refresh() {
+      this.fetchData();
+    }
+  },
   data() {
     return {
-      sourceData: {} // 存储从后端获取的数据
+      sourceData: {}, // 存储从后端获取的数据
+      chart: null
     };
   },
   mounted() {
@@ -26,19 +38,38 @@ export default {
     async fetchData() {
       try {
         const response = await axios.get('/main/all_apps');
-        console.log(response);
         if (response.data.code === 0) {
           this.sourceData = response.data.data;
+          
+          // 检查是否有数据
+          const hasData = Object.values(this.sourceData).some(value => value > 0);
+          // 发送数据状态到父组件
+          this.$emit('data-status', hasData);
+          
           this.initChart();
         } else {
           console.error('请求失败:', response.data.message);
+          this.$emit('data-status', false);
         }
       } catch (error) {
         console.error('发生错误:', error);
+        this.$emit('data-status', false);
       }
     },
     initChart() {
-      const chart = echarts.init(this.$refs.barChart);
+      // 检查图表DOM元素
+      if (!this.$refs.barChart) {
+        console.error('找不到图表DOM元素');
+        return;
+      }
+
+      // 如果已有图表实例，先销毁它
+      if (this.chart) {
+        this.chart.dispose();
+      }
+
+      // 创建新的图表实例
+      this.chart = echarts.init(this.$refs.barChart);
 
       // 处理数据
       let dataArray = Object.entries(this.sourceData).map(([key, value]) => {
@@ -134,7 +165,7 @@ export default {
         ]
       };
 
-      chart.setOption(option);
+      this.chart.setOption(option);
     },
     getChineseName(key) {
       switch (key) {

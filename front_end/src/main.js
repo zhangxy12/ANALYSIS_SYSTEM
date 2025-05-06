@@ -26,7 +26,7 @@ Vue.prototype.$echarts = echarts;
 Vue.config.productionTip = false
 Vue.prototype.$axios = axios
 //axios全局配置
-axios.defaults.baseURL = 'http://127.0.0.1:88/api/tag/'
+axios.defaults.baseURL = 'http://1.12.225.53:88/api/tag/'
 Vue.use(VueRouter)
 
 //设置路由跳转时把页面的title改变

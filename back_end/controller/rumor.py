@@ -2,12 +2,19 @@ import json
 from datetime import datetime
 from datetime import timedelta
 from typing import Dict
+import asyncio
+import schedule
+import time
+import logging
+import os
+import sys
+from threading import Thread
 
 import requests
 from bson.json_util import dumps
 from cnsenti import Sentiment
 from fastapi import APIRouter, Depends
-from motor.motor_asyncio import AsyncIOMotorDatabase
+from motor.motor_asyncio import AsyncIOMotorDatabase, AsyncIOMotorClient
 
 from celery_task.config import mongo_conf
 from celery_task.rumor.RumorSearch import search_and_save_rumors, crawl_and_save_rumor_details
@@ -20,62 +27,184 @@ from rumor_detect.predict import Predictor
 from tieba_crawler.main import fetch_posts
 from wechat_crawler.main import search_wechat_articles
 
+# 配置日志
+# 使用绝对路径确保日志目录创建在正确位置
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# 回退到项目根目录
+root_dir = os.path.dirname(os.path.dirname(current_dir))
+log_dir = os.path.join(root_dir, 'logs')
+
+# 确保日志目录存在
+try:
+    os.makedirs(log_dir, exist_ok=True)
+    # 在日志文件名中添加当前日期时间信息
+    current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = os.path.join(log_dir, f'rumor_scheduler_{current_time}.log')
+
+    print(f"谣言分析日志目录: {log_dir}")
+    print(f"谣言分析日志文件路径: {log_path}")
+
+    # 配置日志处理器
+    file_handler = logging.FileHandler(log_path, encoding='utf-8', mode='a')
+    console_handler = logging.StreamHandler(sys.stdout)
+
+    # 设置日志格式
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    # 获取logger并设置级别
+    logger = logging.getLogger("rumor_scheduler")
+    logger.setLevel(logging.INFO)
+
+    # 清除已有的处理器（避免重复）
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+
+    # 添加处理器
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    logger.info("=" * 50)
+    logger.info("谣言分析日志系统初始化成功，日志文件: %s", log_path)
+    logger.info("=" * 50)
+
+except Exception as e:
+    print(f"谣言分析日志系统初始化失败: {e}")
+    # 设置一个基本的日志配置以防失败
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger("rumor_scheduler")
+    logger.error(f"谣言分析日志系统初始化失败: {e}")
+
 rumor_router = APIRouter(tags=['谣言分析api'])
 
 
+# 添加直接获取数据库连接的函数
+def get_direct_mongo_db():
+    """
+    直接获取MongoDB连接，不使用依赖注入，供定时任务使用
+    """
+    try:
+        # 创建MongoDB客户端
+        client = AsyncIOMotorClient(host=mongo_conf.HOST, port=mongo_conf.PORT)
+        # 获取数据库连接
+        db = client[mongo_conf.DB_NAME]
+        logger.info(f"数据库连接成功: {mongo_conf.DB_NAME}")
+        return db
+    except Exception as e:
+        logger.error(f"数据库连接失败: {e}", exc_info=True)
+        raise
+
+
+# 添加定时任务函数
+async def fetch_rumor_data():
+    """每天凌晨3点执行的谣言数据获取任务"""
+    try:
+        logger.info("开始执行谣言数据定时更新任务")
+        mongo_db = get_direct_mongo_db()
+
+        # 1. 搜索并保存谣言列表
+        logger.info("开始获取谣言列表")
+        try:
+            await search_and_save_rumors(mongo_db)
+            logger.info("成功获取并保存谣言列表")
+        except Exception as e:
+            logger.error(f"获取谣言列表失败: {e}", exc_info=True)
+
+        # 2. 爬取并保存谣言详情
+        logger.info("开始获取谣言详情")
+        try:
+            await crawl_and_save_rumor_details(mongo_db)
+            logger.info("成功获取并保存谣言详情")
+        except Exception as e:
+            logger.error(f"获取谣言详情失败: {e}", exc_info=True)
+
+        logger.info("谣言数据定时更新任务完成")
+
+    except Exception as e:
+        logger.error(f"谣言定时任务执行出错: {e}", exc_info=True)
+
+
+# 在后台线程中运行定时任务
+def run_rumor_scheduler():
+    try:
+        logger.info("启动谣言定时任务调度器")
+
+        # 设置定时任务，每天凌晨3点执行
+        schedule.every().day.at("03:00").do(run_rumor_fetch_task)
+
+        # 不再立即执行任务，只在预定时间执行
+        logger.info("谣言数据将在每天凌晨3点自动更新")
+
+        while True:
+            try:
+                schedule.run_pending()
+                time.sleep(60)  # 每分钟检查一次
+            except Exception as e:
+                logger.error(f"谣言定时任务调度出错: {e}", exc_info=True)
+    except Exception as e:
+        logger.error(f"启动谣言定时任务线程失败: {e}", exc_info=True)
+
+
+# 在单独的函数中执行异步任务
+def run_rumor_fetch_task():
+    try:
+        logger.info("开始执行谣言异步任务")
+        # 创建一个新的事件循环来运行异步任务
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        # 执行异步任务
+        result = loop.run_until_complete(fetch_rumor_data())
+        # 关闭事件循环
+        loop.close()
+        logger.info("谣言异步任务执行完成")
+        return result
+    except Exception as e:
+        logger.error(f"执行谣言异步任务失败: {e}", exc_info=True)
+        return None
+
+
+# 启动定时任务线程
+try:
+    rumor_scheduler_thread = Thread(target=run_rumor_scheduler, daemon=True)
+    rumor_scheduler_thread.start()
+    logger.info("谣言定时任务线程已启动")
+except Exception as e:
+    logger.error(f"启动谣言定时任务线程失败: {e}", exc_info=True)
+
+
+# 修改API实现，确保只从数据库获取数据，不触发爬取操作
+
 @rumor_router.post('/rumor_search')
 async def rumor_search(mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db)):
-    print("rumor")
     try:
-        # 获取 rumors 集合的第一条记录
-        first_rumor = await mongo_db['rumors'].find_one(projection={"_id": 0}, sort=[("date", -1)])
-        if first_rumor:
-            # 字段名为 'date'，并且其格式为 YYYY-MM-DD
-            rumor_date_str = first_rumor.get('date')
-            if rumor_date_str:
-                rumor_date = datetime.strptime(rumor_date_str, '%Y-%m-%d')
-                yesterday = datetime.now() - timedelta(days=1)
-                if rumor_date.date() == yesterday.date():
-                    # 如果第一条记录的日期是昨日，则不调用 search_and_save_rumors 函数
-                    cursor = mongo_db['rumors'].find(projection={"_id": 0})
-                    rumors_data = [doc async for doc in cursor]
-                    return {"message": "谣言搜索并存储成功", "data": rumors_data}
-
-        # 如果第一条记录的日期不是昨日，或者没有记录，则调用 search_and_save_rumors 函数
-        await search_and_save_rumors(mongo_db)
-        # 查询所有保存到 rumors 集合的数据，排除 _id 字段
-        cursor = mongo_db['rumors'].find(projection={"_id": 0})
+        # 直接从数据库中获取谣言数据，不触发爬虫
+        cursor = mongo_db['rumors'].find(projection={"_id": 0}, sort=[("date", -1)])
         rumors_data = [doc async for doc in cursor]
-        return {"message": "谣言搜索并存储成功", "data": rumors_data}
+
+        if not rumors_data:
+            # 如果没有数据，返回提示信息
+            return {"message": "暂无谣言数据，系统将在每天凌晨3点自动更新", "data": []}
+
+        return {"message": "成功获取谣言数据", "data": rumors_data}
     except Exception as e:
-        return {"message": f"出现错误: {str(e)}"}
+        return {"message": f"出现错误: {str(e)}", "data": []}
 
 
 @rumor_router.post('/rumor_detail')
 async def rumor_detail(mongo_db: AsyncIOMotorDatabase = Depends(get_mongo_db)):
     try:
-        # 获取 rumor_detail 集合的第一条记录
-        first_detail = await mongo_db['rumor_detail'].find_one(projection={"_id": 0}, sort=[("date", -1)])
-        if first_detail:
-            # 日期字段名为 'date'，并且其格式为 YYYY-MM-DD
-            detail_date_str = first_detail.get('date')
-            if detail_date_str:
-                detail_date = datetime.strptime(detail_date_str, '%Y-%m-%d')
-                yesterday = datetime.now() - timedelta(days=1)
-                if detail_date.date() == yesterday.date():
-                    # 如果第一条记录的日期是昨日，则不调用 crawl_and_save_rumor_details 函数
-                    cursor = mongo_db['rumor_detail'].find(projection={"_id": 0})
-                    details_data = await cursor.to_list(length=None)
-                    return {"message": "谣言详情爬取并保存成功", "data": details_data}
-
-        # 如果第一条记录的日期不是昨日，或者没有记录，则调用 crawl_and_save_rumor_details 函数
-        await crawl_and_save_rumor_details(mongo_db)
-        # 查询所有保存到 rumor_detail 集合的数据，排除 _id 字段
-        cursor = mongo_db['rumor_detail'].find(projection={"_id": 0})
+        # 直接从数据库中获取谣言详情数据，不触发爬虫
+        cursor = mongo_db['rumor_detail'].find(projection={"_id": 0}, sort=[("date", -1)])
         details_data = await cursor.to_list(length=None)
-        return {"message": "谣言详情爬取并保存成功", "data": details_data}
+
+        if not details_data:
+            # 如果没有数据，返回提示信息
+            return {"message": "暂无谣言详情数据，系统将在每天凌晨3点自动更新", "data": []}
+
+        return {"message": "成功获取谣言详情数据", "data": details_data}
     except Exception as e:
-        return {"message": f"出现错误: {str(e)}"}
+        return {"message": f"出现错误: {str(e)}", "data": []}
 
 
 @rumor_router.get('/rumor_word', response_model=RESTfulModel)
@@ -87,6 +216,10 @@ async def rumor_details_word_cloud(db: AsyncIOMotorDatabase = Depends(get_mongo_
         # 查询所有文档
         cursor = detail_collection.find()
         all_documents = [doc async for doc in cursor]
+
+        if not all_documents:
+            # 如果没有数据，返回提示信息
+            return RESTfulModel(code=0, message="暂无谣言数据，系统将在每天凌晨3点自动更新", data={"wordcloud_data": []})
 
         # 合并所有谣言和真相内容到一个列表
         content = []
@@ -117,7 +250,7 @@ async def rumor_details_word_cloud(db: AsyncIOMotorDatabase = Depends(get_mongo_
         return RESTfulModel(code=0, message="成功", data={"wordcloud_data": wordcloud_data})
 
     except Exception as e:
-        return RESTfulModel(code=500, message=f"发生错误: {str(e)}", data={})
+        return RESTfulModel(code=500, message=f"发生错误: {str(e)}", data={"wordcloud_data": []})
 
 
 # 初始化预测器

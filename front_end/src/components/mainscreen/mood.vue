@@ -33,6 +33,17 @@ import axios from 'axios';
 import * as echarts from 'echarts';
 
 export default {
+    props: {
+        refresh: {
+            type: Boolean,
+            default: false
+        }
+    },
+    watch: {
+        refresh() {
+            this.fetchData();
+        }
+    },
     data() {
         return {
             sentimentRatio: {
@@ -51,6 +62,18 @@ export default {
     },
     methods: {
         initChart() {
+            // 检查图表DOM元素
+            if (!this.$refs.sentimentChart) {
+                console.error('找不到图表DOM元素');
+                return;
+            }
+
+            // 如果已有图表实例，先销毁它
+            if (this.chart) {
+                this.chart.dispose();
+            }
+
+            // 创建新的图表实例
             this.chart = echarts.init(this.$refs.sentimentChart);
             this.updateChart();
         },
@@ -97,12 +120,24 @@ export default {
                     this.sentimentRatio = data.sentiment_ratio;
                     this.topPositiveWords = data.top_positive_words;
                     this.topNegativeWords = data.top_negative_words;
+                    
+                    // 检查是否有数据
+                    const hasData = (this.sentimentRatio.positive > 0 || 
+                                    this.sentimentRatio.negative > 0 || 
+                                    this.sentimentRatio.neutral > 0 ||
+                                    this.topPositiveWords.length > 0 ||
+                                    this.topNegativeWords.length > 0);
+                    // 发送数据状态到父组件
+                    this.$emit('data-status', hasData);
+                    
                     this.updateChart();
                 } else {
                     console.error('请求失败:', response.data.message);
+                    this.$emit('data-status', false);
                 }
             } catch (error) {
                 console.error('发生错误:', error);
+                this.$emit('data-status', false);
             }
         }
     }

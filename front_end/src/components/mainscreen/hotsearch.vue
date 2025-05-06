@@ -33,6 +33,17 @@
 
 <script>
 export default {
+    props: {
+        refresh: {
+            type: Boolean,
+            default: false
+        }
+    },
+    watch: {
+        refresh() {
+            this.fetchData();
+        }
+    },
     data() {
         return {
             currentPlatform: '微博',
@@ -50,17 +61,22 @@ export default {
         async fetchData() {
             try {
                 const response = await this.$axios.get('/main/all_hot');
-                console.log(response);
                 if (response.data.code === 0) {
-                    this.weiboData = response.data.data.weibo;
-                    this.tiebaData = response.data.data.tieba;
-                    this.baiduData = response.data.data.baidu;
+                    this.weiboData = response.data.data.weibo || [];
+                    this.tiebaData = response.data.data.tieba || [];
+                    this.baiduData = response.data.data.baidu || [];
                     this.currentData = this.weiboData;
+                    
+                    // 检查是否有数据，并向父组件发送数据状态
+                    const hasData = this.weiboData.length > 0 || this.tiebaData.length > 0 || this.baiduData.length > 0;
+                    this.$emit('data-status', hasData);
                 } else {
                     console.error('请求失败:', response.data.message);
+                    this.$emit('data-status', false);
                 }
             } catch (error) {
                 console.error('发生错误:', error);
+                this.$emit('data-status', false);
             }
         },
         switchPlatform(platform) {

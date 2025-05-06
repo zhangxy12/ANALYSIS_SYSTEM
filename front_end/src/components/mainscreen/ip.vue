@@ -27,8 +27,20 @@ export default {
         '香港': '香港特别行政区',
         '澳门': '澳门特别行政区',
         '台湾': '台湾省'
-      }
+      },
+      mapChart: null
     };
+  },
+  props: {
+    refresh: {
+      type: Boolean,
+      default: false
+    }
+  },
+  watch: {
+    refresh() {
+      this.fetchDataAndDrawMap();
+    }
   },
   mounted() {
     this.fetchDataAndDrawMap();
@@ -59,15 +71,16 @@ export default {
         this.$echarts.registerMap('china', chinaGeoJSON);
 
         // 2. 获取业务数据并规范化地区名称
-        const response = await this.$axios.get('/main/start_ip');
-        if (response.data.code === 200) {
-          const graphResponse = await this.$axios.get('/main/all_ip');
+        const graphResponse = await this.$axios.get('/main/all_ip');
+        if (graphResponse.data.code === 200 || graphResponse.data.code === 404) {
           // 对数据进行聚合（相同地区合并计数）
           const dataMap = {};
-          graphResponse.data.data.detail.forEach(item => {
-            const normalizedName = this.normalizeRegionName(item.location);
-            dataMap[normalizedName] = (dataMap[normalizedName] || 0) + item.count;
-          });
+          if (graphResponse.data.data && graphResponse.data.data.detail) {
+            graphResponse.data.data.detail.forEach(item => {
+              const normalizedName = this.normalizeRegionName(item.location);
+              dataMap[normalizedName] = (dataMap[normalizedName] || 0) + item.count;
+            });
+          }
           
           // 转换为echarts需要的格式
           this.graphData = Object.keys(dataMap).map(name => ({
@@ -75,17 +88,43 @@ export default {
             value: dataMap[name]
           }));
           
+          // 检查是否有数据
+          const hasData = this.graphData.length > 0;
+          // 发送数据状态到父组件
+          this.$emit('data-status', hasData);
+          
           this.drawMap();
+        } else {
+          console.error('获取IP数据失败:', graphResponse.data.message);
+          this.$emit('data-status', false);
         }
       } catch (error) {
         console.error('初始化失败:', error);
+        this.$emit('data-status', false);
       }
     },
 
     drawMap() {
-      const myChart = this.$echarts.init(document.getElementById('map-chart'));
-      const maxCount = Math.max(...this.graphData.map(item => item.value));
-
+      // 检查DOM元素
+      const chartElement = document.getElementById('map-chart');
+      if (!chartElement) {
+        console.error('找不到地图DOM元素');
+        return;
+      }
+      
+      // 如果已有地图实例，先销毁它
+      if (this.mapChart) {
+        this.mapChart.dispose();
+      }
+      
+      // 创建新的地图实例
+      this.mapChart = this.$echarts.init(chartElement);
+      
+      // 防止空数据或最大值为0导致渐变色错误
+      const maxCount = this.graphData.length > 0 
+        ? Math.max(...this.graphData.map(item => item.value)) 
+        : 100;  // 设置默认最大值，避免为0
+      
       const option = {
         title: {
           text: '地理位置分布',
@@ -108,11 +147,12 @@ export default {
         },
         visualMap: {
           left: 20,
-          bottom:20,
+          bottom: 20,
           min: 0,
-          max: maxCount,
+          max: maxCount || 100,  // 确保最大值不会为0或undefined
           inRange: {
-            color: ['#9ecae8', '#2171b5', '#096dd9', '#08519c']
+            // 使用固定颜色数组而不是渐变色
+            color: ['#9ecae8', '#6baed6', '#4292c6', '#2171b5', '#08519c']
           },
           textStyle: {
             color: '#fff'
@@ -161,17 +201,19 @@ export default {
           },
           layoutCenter: ['50%', '50%'],  // 地图居中显示
           layoutSize: '100%',  // 地图适应父组件大小
-          data: this.graphData
+          data: this.graphData || []  // 确保data不为undefined
         }]
       };
 
-      myChart.setOption(option);
+      this.mapChart.setOption(option);
 
-      const resizeHandler = () => myChart.resize();
+      const resizeHandler = () => this.mapChart.resize();
       window.addEventListener('resize', resizeHandler);
       this.$once('hook:beforeDestroy', () => {
         window.removeEventListener('resize', resizeHandler);
-        myChart.dispose();
+        if (this.mapChart) {
+          this.mapChart.dispose();
+        }
       });
     }
   }

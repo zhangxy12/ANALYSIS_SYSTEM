@@ -4,7 +4,7 @@
         <div class="platform-items-wrapper">
             <div class="platform-item" v-for="(count, platform) in platformArticleCounts" :key="platform">
                 <span>{{ platformNames[platform] }}</span>
-                <dv-decoration-9 style="width:70px;height:70px;" dur=5>
+                <dv-decoration-9 style="width:70px;height:70px;" :dur="5">
                     <span>{{ count }}</span>
                 </dv-decoration-9>
             </div>
@@ -19,6 +19,17 @@ import axios from 'axios';
 import { Message } from 'element-ui';
 
 export default {
+    props: {
+        refresh: {
+            type: Boolean,
+            default: false
+        }
+    },
+    watch: {
+        refresh() {
+            this.fetchArticleCounts();
+        }
+    },
     data() {
         return {
             platformArticleCounts: {
@@ -51,18 +62,26 @@ export default {
 
             try {
                 const response = await axios.get(`/main/all_multi_search?cursor=${this.cursor}`);
-                console.log(response);
                 if (response.data.code === 0) {
                     const pageData = response.data.data;
+                    const hasData = pageData && pageData.source_count && 
+                                   (pageData.source_count.wechat > 0 || 
+                                    pageData.source_count.weibo > 0 || 
+                                    pageData.source_count.renmin > 0 || 
+                                    pageData.source_count.tieba > 0);
+                    
+                    this.$emit('data-status', hasData);
+                    
                     this.platformArticleCounts = {
-                        wechat: pageData.source_count.wechat,
-                        weibo: pageData.source_count.weibo,
-                        renmin: pageData.source_count.renmin,
-                        tieba: pageData.source_count.tieba
+                        wechat: pageData.source_count.wechat || 0,
+                        weibo: pageData.source_count.weibo || 0,
+                        renmin: pageData.source_count.renmin || 0,
+                        tieba: pageData.source_count.tieba || 0
                     };
                 } else {
                     this.errorMessage = response.data.message;
                     Message.warning(this.errorMessage);
+                    this.$emit('data-status', false);
                 }
             } catch (error) {
                 if (error.response) {
@@ -76,6 +95,7 @@ export default {
                     Message.error(this.errorMessage);
                 }
                 console.error('数据请求出错:', error);
+                this.$emit('data-status', false);
             }
 
             this.isLoading = false;

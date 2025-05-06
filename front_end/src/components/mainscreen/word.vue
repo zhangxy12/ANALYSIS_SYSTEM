@@ -17,8 +17,20 @@ export default {
         return {
             wordcloudData: [],
             loading: false,
-            error: null
+            error: null,
+            chart: null
         };
+    },
+    props: {
+        refresh: {
+            type: Boolean,
+            default: false
+        }
+    },
+    watch: {
+        refresh() {
+            this.fetchWordcloudData();
+        }
     },
     mounted() {
         this.fetchWordcloudData();
@@ -44,7 +56,18 @@ export default {
         },
         renderWordcloud() {
             const chartDom = this.$refs.wordcloud;
-            const myChart = echarts.init(chartDom);
+            if (!chartDom) {
+                console.error('找不到图表DOM元素');
+                return;
+            }
+            
+            // 检查是否已有图表实例，如果有则销毁
+            if (this.chart) {
+                this.chart.dispose();
+            }
+            
+            // 创建新实例
+            this.chart = echarts.init(chartDom);
 
             const option = {
                 series: [
@@ -65,12 +88,12 @@ export default {
                         textStyle: {
                             color: function () {
                                 // 随机生成蓝色系颜色
-                        return "rgb(" +
-                            [
-                                Math.round(Math.random() * 55 + 120), // 红色分量：0 - 55
-                                Math.round(Math.random() * 55 + 180), // 绿色分量：0 - 55
-                                Math.round(Math.random() * 55 + 220) // 蓝色分量：200 - 255
-                            ].join(",") + ")";
+                                return "rgb(" +
+                                    [
+                                        Math.round(Math.random() * 55 + 120), // 红色分量：0 - 55
+                                        Math.round(Math.random() * 55 + 180), // 绿色分量：0 - 55
+                                        Math.round(Math.random() * 55 + 220) // 蓝色分量：200 - 255
+                                    ].join(",") + ")";
                             },
                             emphasis: {
                                 shadowBlur: 10,
@@ -85,7 +108,7 @@ export default {
                 ]
             };
 
-            option && myChart.setOption(option);
+            option && this.chart.setOption(option);
         }
     }
 };
